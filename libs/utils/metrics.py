@@ -1,28 +1,38 @@
 # Modified from official EPIC-Kitchens action detection evaluation code
 # see https://github.com/epic-kitchens/C2-Action-Detection/blob/master/EvaluationCode/evaluate_detection_json_ek100.py
-import os
 import json
-import pandas as pd
-import numpy as np
-from joblib import Parallel, delayed
+import os
+from typing import Dict
 from typing import List
 from typing import Tuple
-from typing import Dict
+
+import numpy as np
+import pandas as pd
+from joblib import Parallel, delayed
+
+# 处理tsl-300
+label_dict = {'n': 0, 'p': 1}
 
 
 def remove_duplicate_annotations(ants, tol=1e-3):
     # remove duplicate / very short annotations (same category and starting/ending time)
     valid_events = []
     for event in ants:
-        s, e, l = event['segment'][0], event['segment'][1], event['label_id']
+        s, e = float(event['segment'][0]), float(event['segment'][1])
+
+        if 'label_id' in event:
+            l = event['label_id']
+        else:
+            l = label_dict[event['label']]
+
         if (e - s) >= tol:
             valid = True
         else:
             valid = False
         for p_event in valid_events:
-            if ((abs(s-p_event['segment'][0]) <= tol)
-                and (abs(e-p_event['segment'][1]) <= tol)
-                and (l == p_event['label_id'])
+            if ((abs(s - float(p_event['segment'][0])) <= tol)
+                    and (abs(e - float(p_event['segment'][1])) <= tol)
+                    and (l == p_event['label_id'])
             ):
                 valid = False
                 break
@@ -33,6 +43,11 @@ def remove_duplicate_annotations(ants, tol=1e-3):
 
 def load_gt_seg_from_json(json_file, split=None, label='label_id', label_offset=0):
     # load json file
+    if os.path.isdir(json_file):
+        # 处理tsl-300
+        json_file = f'{json_file}/videosenti_gt.json'
+        label = 'label'
+
     with open(json_file, "r", encoding="utf8") as f:
         json_db = json.load(f)
     json_db = json_db['database']
@@ -55,16 +70,22 @@ def load_gt_seg_from_json(json_file, split=None, label='label_id', label_offset=
                 # offset the labels by label_offset
                 label_id = 0
                 for i, x in enumerate(event[label][::-1]):
-                    label_id += label_offset**i + int(x)
+                    if label == 'label':
+                        label_id += label_offset ** i + int(label_dict[x])
+                    else:
+                        label_id += label_offset ** i + int(x)
             else:
                 # load label_id directly
-                label_id = int(event[label])
+                if label == 'label':
+                    label_id = int(label_dict[event[label]])
+                else:
+                    label_id = int(event[label])
             labels += [label_id]
 
     # move to pd dataframe
     gt_base = pd.DataFrame({
-        'video-id' : vids,
-        't-start' : starts,
+        'video-id': vids,
+        't-start': starts,
         't-end': stops,
         'label': labels
     })
@@ -90,7 +111,7 @@ def load_pred_seg_from_json(json_file, label='label_id', label_offset=0):
                 # offset the labels by label_offset
                 label_id = 0
                 for i, x in enumerate(event[label][::-1]):
-                    label_id += label_offset**i + int(x)
+                    label_id += label_offset ** i + int(x)
             else:
                 # load label_id directly
                 label_id = int(event[label])
@@ -99,8 +120,8 @@ def load_pred_seg_from_json(json_file, label='label_id', label_offset=0):
 
     # move to pd dataframe
     pred_base = pd.DataFrame({
-        'video-id' : vids,
-        't-start' : starts,
+        'video-id': vids,
+        't-start': starts,
         't-end': stops,
         'label': labels,
         'score': scores
@@ -113,15 +134,15 @@ class ANETdetection(object):
     """Adapted from https://github.com/activitynet/ActivityNet/blob/master/Evaluation/eval_detection.py"""
 
     def __init__(
-        self,
-        ant_file,
-        split=None,
-        tiou_thresholds=np.linspace(0.1, 0.5, 5),
-        top_k=(1, 5),
-        label='label_id',
-        label_offset=0,
-        num_workers=8,
-        dataset_name=None,
+            self,
+            ant_file,
+            split=None,
+            tiou_thresholds=np.linspace(0.1, 0.5, 5),
+            top_k=(1, 5),
+            label='label_id',
+            label_offset=0,
+            num_workers=8,
+            dataset_name=None,
     ):
 
         self.tiou_thresholds = tiou_thresholds
@@ -140,7 +161,7 @@ class ANETdetection(object):
 
         # remove labels that does not exists in gt
         self.activity_index = {j: i for i, j in enumerate(sorted(self.ground_truth['label'].unique()))}
-        self.ground_truth['label']=self.ground_truth['label'].replace(self.activity_index)
+        self.ground_truth['label'] = self.ground_truth['label'].replace(self.activity_index)
 
     def _get_predictions_with_label(self, prediction_by_label, label_name, cidx):
         """Get all predicitons of the given label. Return empty DataFrame if there
@@ -170,7 +191,7 @@ class ANETdetection(object):
             ) for label_name, cidx in self.activity_index.items())
 
         for i, cidx in enumerate(self.activity_index.values()):
-            ap[:,cidx] = results[i]
+            ap[:, cidx] = results[i]
 
         return ap
 
@@ -192,7 +213,7 @@ class ANETdetection(object):
             ) for label_name, cidx in self.activity_index.items())
 
         for i, cidx in enumerate(self.activity_index.values()):
-            recall[...,cidx] = results[i]
+            recall[..., cidx] = results[i]
 
         return recall
 
@@ -212,8 +233,8 @@ class ANETdetection(object):
             # move to pd dataframe
             # did not check dtype here, can accept both numpy / pytorch tensors
             preds = pd.DataFrame({
-                'video-id' : preds['video-id'],
-                't-start' : preds['t-start'].tolist(),
+                'video-id': preds['video-id'],
+                't-start': preds['t-start'].tolist(),
                 't-end': preds['t-end'].tolist(),
                 'label': preds['label'].tolist(),
                 'score': preds['score'].tolist()
@@ -240,20 +261,20 @@ class ANETdetection(object):
             block = ''
             for tiou, tiou_mAP, tiou_mRecall in zip(self.tiou_thresholds, mAP, mRecall):
                 block += '\n|tIoU = {:.2f}: '.format(tiou)
-                block += 'mAP = {:>4.2f} (%) '.format(tiou_mAP*100)
+                block += 'mAP = {:>4.2f} (%) '.format(tiou_mAP * 100)
                 for idx, k in enumerate(self.top_k):
-                    block += 'Recall@{:d}x = {:>4.2f} (%) '.format(k, tiou_mRecall[idx]*100)
+                    block += 'Recall@{:d}x = {:>4.2f} (%) '.format(k, tiou_mRecall[idx] * 100)
             print(block)
-            print('Average mAP: {:>4.2f} (%)'.format(average_mAP*100))
+            print('Average mAP: {:>4.2f} (%)'.format(average_mAP * 100))
 
         # return the results
         return mAP, average_mAP, mRecall
 
 
 def compute_average_precision_detection(
-    ground_truth,
-    prediction,
-    tiou_thresholds=np.linspace(0.1, 0.5, 5)
+        ground_truth,
+        prediction,
+        tiou_thresholds=np.linspace(0.1, 0.5, 5)
 ):
     """Compute average precision (detection task) between ground truth and
     predictions data frames. If multiple predictions occurs for the same
@@ -279,7 +300,7 @@ def compute_average_precision_detection(
         return ap
 
     npos = float(len(ground_truth))
-    lock_gt = np.ones((len(tiou_thresholds),len(ground_truth))) * -1
+    lock_gt = np.ones((len(tiou_thresholds), len(ground_truth))) * -1
     # Sort predictions by decreasing score order.
     sort_idx = prediction['score'].values.argsort()[::-1]
     prediction = prediction.loc[sort_idx].reset_index(drop=True)
@@ -328,16 +349,16 @@ def compute_average_precision_detection(
     precision_cumsum = tp_cumsum / (tp_cumsum + fp_cumsum)
 
     for tidx in range(len(tiou_thresholds)):
-        ap[tidx] = interpolated_prec_rec(precision_cumsum[tidx,:], recall_cumsum[tidx,:])
+        ap[tidx] = interpolated_prec_rec(precision_cumsum[tidx, :], recall_cumsum[tidx, :])
 
     return ap
 
 
 def compute_topkx_recall_detection(
-    ground_truth,
-    prediction,
-    tiou_thresholds=np.linspace(0.1, 0.5, 5),
-    top_k=(1, 5),
+        ground_truth,
+        prediction,
+        tiou_thresholds=np.linspace(0.1, 0.5, 5),
+        top_k=(1, 5),
 ):
     """Compute recall (detection task) between ground truth and
     predictions data frames. If multiple predictions occurs for the same
@@ -388,7 +409,7 @@ def compute_topkx_recall_detection(
         top_kx_idx = score_sort_idx[:max(top_k) * len(this_gt)]
         tiou_arr = k_segment_iou(this_pred[['t-start', 't-end']].values[top_kx_idx],
                                  this_gt[['t-start', 't-end']].values)
-            
+
         for tidx, tiou_thr in enumerate(tiou_thresholds):
             for kidx, k in enumerate(top_k):
                 tiou = tiou_arr[:k * len(this_gt)]
@@ -402,7 +423,7 @@ def compute_topkx_recall_detection(
 def k_segment_iou(target_segments, candidate_segments):
     return np.stack(
         [segment_iou(target_segment, candidate_segments) \
-            for target_segment in target_segments]
+         for target_segment in target_segments]
     )
 
 
