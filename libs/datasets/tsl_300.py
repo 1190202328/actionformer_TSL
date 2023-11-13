@@ -211,7 +211,10 @@ class TSL300Dataset(Dataset):
         # TODO 1 暂时只用rgb的试一试！
         # feats = rgb_feature
 
-        # TODO 2 用rgb+audio试一试
+        # TODO 2 暂时只用audio的试一试！
+        # feats = mfcc_feature
+
+        # TODO 3 用rgb+audio试一试
         feats = np.concatenate([rgb_feature, mfcc_feature], axis=-1)
 
         # deal with downsampling (= increased feat stride)
