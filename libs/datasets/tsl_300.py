@@ -207,8 +207,12 @@ class TSL300Dataset(Dataset):
         # # 120.4
         # # (225, 1024)
         # # (225, 1920)
-        # TODO 1 暂时只用video的试一试！
-        feats = rgb_feature
+
+        # TODO 1 暂时只用rgb的试一试！
+        # feats = rgb_feature
+
+        # TODO 2 用rgb+audio试一试
+        feats = np.concatenate([rgb_feature, mfcc_feature], axis=-1)
 
         # deal with downsampling (= increased feat stride)
         feats = feats[::self.downsample_rate, :]

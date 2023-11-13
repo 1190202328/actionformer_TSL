@@ -7,7 +7,8 @@ dataset: {
   file_prefix: ~,
   file_ext: .npy,
   num_classes: 2,
-  input_dim: 1024, # video:1024+audio:1920
+  #  input_dim: 1024, # video:1024+audio:1920
+  input_dim: 2944, # video:1024+audio:1920
   feat_stride: 16, # TODO 可能需要问作者
   num_frames: 16,
   # serve as data augmentation
