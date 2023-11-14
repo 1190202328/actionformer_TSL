@@ -4,7 +4,7 @@ from torch.nn import functional as F
 
 from .models import register_backbone
 from .blocks import (get_sinusoid_encoding, TransformerBlock, MaskedConv1D,
-                     ConvBlock, LayerNorm)
+                     ConvBlock, LayerNorm, Cls_Module)
 
 
 @register_backbone("convTransformer")
@@ -40,6 +40,9 @@ class ConvTransformerBackbone(nn.Module):
         self.scale_factor = scale_factor
         self.use_abs_pe = use_abs_pe
         self.use_rel_pe = use_rel_pe
+
+        # feature fusion
+        self.cls_module = Cls_Module(1024, 2) # [len_features, num_class]
 
         # feature projection
         self.n_in = n_in
@@ -112,10 +115,53 @@ class ConvTransformerBackbone(nn.Module):
             if module.bias is not None:
                 torch.nn.init.constant_(module.bias, 0.)
 
-    def forward(self, x, mask):
+    def forward(self, input_x, mask):
         # x: batch size, feature channel, sequence length,
         # mask: batch size, 1, sequence length (bool)
-        B, C, T = x.size()
+        B, C, T = input_x.size()
+
+        # print(x.shape)
+        # # torch.Size([2, 2944, 2304])
+        rgb_feature = input_x[:,:1024,:]
+        mfcc_feature = input_x[:, 1024:, :]
+        rgb_feature = rgb_feature.reshape([B, T, 1024])
+        mfcc_feature = mfcc_feature.reshape(B, T, 32, 60)
+        # print(rgb_feature.shape)
+        # print(mfcc_feature.shape)
+        # # torch.Size([2, 2304, 1024])
+        # # torch.Size([2, 2304, 32, 60])
+
+        cal_real_T = mask.sum(-1).squeeze().cpu().numpy().tolist()
+        cpc_loss_total = 0.
+        features = []
+        if type(cal_real_T) == int:
+            cal_real_T = [cal_real_T]
+        for b in range(len(cal_real_T)):
+            rgb_feature_inner = rgb_feature[b:b + 1, :, ]
+            rgb_feature_inner = rgb_feature_inner[:, :cal_real_T[b], :]
+
+            mfcc_feature_inner = mfcc_feature[b:b + 1, :, :, :]
+            mfcc_feature_inner = mfcc_feature_inner[:, :cal_real_T[b], :, :]
+
+            # print(rgb_feature_inner.shape)
+            # print(mfcc_feature_inner.shape)
+            # # torch.Size([1, 235, 1024])
+            # # torch.Size([1, 235, 32, 60])
+            # # torch.Size([1, 376, 1024])
+            # # torch.Size([1, 376, 32, 60])
+
+            feature_inner, _, _, cpc_loss = self.cls_module([rgb_feature_inner, mfcc_feature_inner], self.training)
+
+            feature_inner = torch.nn.functional.pad(feature_inner, (0, 0, 0, T - cal_real_T[b]), mode='constant', value=0)
+
+            features.append(feature_inner)
+            if self.training:
+                cpc_loss_total += cpc_loss
+
+        features = torch.cat(features, dim=0)
+        # print(features.shape)
+        # # torch.Size([2, 2304, 2048])
+        x = features.reshape([B, 2048, T])
 
         # feature projection
         if isinstance(self.n_in, (list, tuple)):
@@ -161,7 +207,7 @@ class ConvTransformerBackbone(nn.Module):
             out_feats += (x, )
             out_masks += (mask, )
 
-        return out_feats, out_masks
+        return out_feats, out_masks, cpc_loss
 
 
 @register_backbone("conv")

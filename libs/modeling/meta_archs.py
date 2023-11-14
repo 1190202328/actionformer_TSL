@@ -335,7 +335,7 @@ class PtTransformer(nn.Module):
         batched_inputs, batched_masks = self.preprocessing(video_list)
 
         # forward the network (backbone -> neck -> heads)
-        feats, masks = self.backbone(batched_inputs, batched_masks)
+        feats, masks, cpc_loss = self.backbone(batched_inputs, batched_masks)
         fpn_feats, fpn_masks = self.neck(feats, masks)
 
         # compute the point coordinate along the FPN
@@ -376,6 +376,9 @@ class PtTransformer(nn.Module):
                 out_cls_logits, out_offsets,
                 gt_cls_labels, gt_offsets
             )
+            # # TODO 暂时不加cpc loss，好像是有问题的
+            # losses['cpc_loss'] = cpc_loss
+            # losses['final_loss'] = losses['final_loss'] + cpc_loss
             return losses
 
         else:

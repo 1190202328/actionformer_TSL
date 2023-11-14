@@ -133,6 +133,10 @@ def ctr_diou_loss_1d(
     """
     input_offsets = input_offsets.float()
     target_offsets = target_offsets.float()
+
+    if not (target_offsets >= 0.0).all():
+        print(target_offsets)
+
     # check all 1D events are valid
     assert (input_offsets >= 0.0).all(), "predicted offsets must be non-negative"
     assert (target_offsets >= 0.0).all(), "GT offsets must be non-negative"
